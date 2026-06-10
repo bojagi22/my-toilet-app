@@ -5552,21 +5552,6 @@ function setupSearch() {
   input.addEventListener('blur', function(){ setTimeout(function(){ ac.classList.remove('show'); }, 150); });
 }
 
-function doSearch(q) {
-  if(!q) return;
-  document.getElementById('search-input').value = q;
-  document.getElementById('ac').classList.remove('show');
-  const ql = q.toLowerCase();
-  const all = TOILETS.concat(dynToilets);
-  const match = all.find(function(t){ return t.name.toLowerCase().includes(ql); });
-  if(match){ map.setView([match.lat, match.lng], 17); openSheet(match); return; }
-  const byAddr = all.find(function(t){
-    return (t.loc||'').toLowerCase().includes(ql) || (t.addr_new||'').toLowerCase().includes(ql);
-  });
-  if(byAddr){ map.setView([byAddr.lat, byAddr.lng], 17); openSheet(byAddr); return; }
-  showToast('"' + q + '" 검색 결과가 없습니다');
-}
-
 // ─── 비밀번호 신고 ────────────────────────────────────────────
 function togglePwReportForm(){
   const f = document.getElementById('sh-pw-report-form');
@@ -5767,30 +5752,79 @@ function applyDark(on){
 }
 
 // ─── SEARCH ──────────────────────────────────────────────────
-function setupSearch(){
-  const inp=document.getElementById('search-input');
-  const ac=document.getElementById('ac');
-  inp.addEventListener('input',()=>{
-    const v=inp.value.trim();
-    if(!v){ac.classList.remove('show');return;}
-    const all=[...TOILETS,...dynToilets];
-    const m=[
-      ...AC_BASE.filter(s=>s.includes(v)),
-      ...all.filter(t=>t.name.includes(v)).map(t=>t.name),
-    ].filter((x,i,a)=>a.indexOf(x)===i).slice(0,6);
-    if(!m.length){ac.classList.remove('show');return;}
-    ac.innerHTML=m.map(s=>`<div class="ac-item" onmousedown="selAC('${s.replace(/'/g,"\\'")}')">📍 ${s}</div>`).join('');
+// ─── 통합 및 버그 수정된 검색 시스템 ──────────────────────────────────────────
+
+function setupSearch() {
+  const input = document.getElementById('search-input');
+  const ac = document.getElementById('ac');
+
+  // 1. 검색어 입력 시 자동완성 제어
+  input.addEventListener('input', () => {
+    const v = input.value.trim();
+    if (!v) { ac.classList.remove('show'); return; }
+
+    const all = [...TOILETS, ...dynToilets];
+    // 추천 키워드(AC_BASE)와 실제 화장실 이름을 모두 필터링하여 상위 6개 추출
+    const matches = [
+      ...AC_BASE.filter(s => s.includes(v)),
+      ...all.filter(t => t.name.includes(v)).map(t => t.name)
+    ].filter((x, i, a) => a.indexOf(x) === i).slice(0, 6);
+
+    if (!matches.length) { ac.classList.remove('show'); return; }
+
+    // 자동완성 아이템 클릭 시 정상적인 부분 일치 검색(doSearch)이 유도되도록 변경
+    ac.innerHTML = matches.map(s => 
+      `<div class="ac-item" onmousedown="doSearch('${s.replace(/'/g, "\\'")}')">📍 ${s}</div>`
+    ).join('');
     ac.classList.add('show');
   });
-  inp.addEventListener('blur',()=>setTimeout(()=>ac.classList.remove('show'),200));
-}
-function selAC(v){
-  document.getElementById('search-input').value=v;
-  document.getElementById('ac').classList.remove('show');
-  const t=[...TOILETS,...dynToilets].find(x=>x.name===v);
-  if(t){map.setView([t.lat,t.lng],17);openSheet(t);}
+
+  // 2. 엔터키(검색 실행) 및 ESC키(창 닫기) 이벤트 리스너 복구
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      ac.classList.remove('show');
+      doSearch(input.value.trim());
+    }
+    if (e.key === 'Escape') {
+      ac.classList.remove('show');
+      input.blur();
+    }
+  });
+
+  // 3. 포커스를 잃었을 때 자동완성 레이어 팝업 닫기
+  input.addEventListener('blur', () => {
+    setTimeout(() => ac.classList.remove('show'), 200);
+  });
 }
 
+// 5,000여 개 대용량 및 유동성 데이터를 포괄하는 핵심 검색 엔진 함수
+function doSearch(q) {
+  if (!q) return;
+  document.getElementById('search-input').value = q;
+  document.getElementById('ac').classList.remove('show');
+  
+  const ql = q.toLowerCase();
+  const all = [...TOILETS, ...dynToilets];
+
+  // 1순위 검색: 화장실 명칭에 키워드가 포함(부분 매칭)되는지 검사
+  let match = all.find(t => t.name.toLowerCase().includes(ql));
+  
+  // 2순위 검색: 이름 매칭 실패 시, 지번/도로명 주소 및 상세 위치(층수 등) 정보에서 재검색
+  if (!match) {
+    match = all.find(t => 
+      (t.loc || '').toLowerCase().includes(ql) || 
+      (t.addr || '').toLowerCase().includes(ql)
+    );
+  }
+
+  // 매칭 결과 처리 및 지도 카메라 뷰포트 이동
+  if (match) {
+    map.setView([match.lat, match.lng], 17); // 줌 레벨 17로 포커싱 (최적화 기준 14 이상이므로 마커 정상 노출)
+    openSheet(match); // 바텀 시트 열어서 세부 정보 동기화
+  } else {
+    showToast(`"${q}" 검색 결과가 없습니다.`);
+  }
+}
 // ─── COIN DISPLAY ────────────────────────────────────────────
 function updateCoin(anim){
   document.getElementById('coin-n').textContent=coins;
